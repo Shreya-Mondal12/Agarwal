@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CD Benefit Summary Analyzer</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <div class="header-tag">// Closing Disclosure Analyzer</div>
+    <h1>Benefit Summary<br /><em>Extractor</em></h1>
+    <p class="subtitle">
+      Upload a Closing Disclosure PDF to automatically extract values and compute
+      both Savings by Cost and Savings by Escrow &amp; Payoff benefit summaries.
+    </p>
+  </header>
+
+  <div id="upload-area">
+    <div class="upload-zone" id="dropzone">
+      <input type="file" id="file-input" accept=".pdf" />
+      <div class="upload-icon">📄</div>
+      <div class="upload-title">Drop your Closing Disclosure here</div>
+      <div class="upload-sub">PDF format · Drag &amp; drop or click to browse</div>
+      <span class="upload-badge">PDF → Benefit Summary</span>
+    </div>
+
+    <div class="sep">or use sample document</div>
+
+    <button class="btn-sample" id="btn-sample">
+      <span class="dot"></span>
+      Analyze the attached sample CD (LOAN ID # 1225090173-2)
+    </button>
+  </div>
+
+  <div id="error-box"></div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loading-text">Extracting values from CD...</div>
+  </div>
+
+  <div id="results"></div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
