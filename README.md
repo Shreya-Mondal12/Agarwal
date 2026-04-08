@@ -3,6 +3,8 @@
 A simple finance dashboard that helps users analyze **Certificate of Deposit (CD) returns and benefits**.
 It provides a clear breakdown of investment growth, helping users make better financial decisions.
 
+The system leverages Google Gemini API to extract structured financial data from PDFs and presents a clear breakdown of cost-based and escrow-based benefits, helping users make informed financial decisions.
+
 ---
 
 ## Features
@@ -11,7 +13,7 @@ It provides a clear breakdown of investment growth, helping users make better fi
 * Visual summary of investment growth
 * Lightweight and fast
 * Simple frontend with backend logic
-* Python-based financial calculations
+* AI-based data extraction using Gemini
 
 ---
 
@@ -19,6 +21,7 @@ It provides a clear breakdown of investment growth, helping users make better fi
 
 * **Frontend:** HTML, CSS, JavaScript
 * **Backend Logic:** Node.js / JavaScript
+* **AI Integration:** Google Gemini API
 * **Financial Computation:** Python
 * **Version Control:** Git & GitHub
 
@@ -68,8 +71,9 @@ http://localhost:3000
 
 ## How It Works
 
-* User inputs CD investment details
+* User inputs CD investment details PDF
 * Backend processes calculations
+* Gemini API extracts structured financial data
 * Python script computes financial returns
 * Results are displayed on the frontend
 
@@ -79,7 +83,7 @@ http://localhost:3000
 
 * Personal finance tracking
 * Understanding fixed deposit/CD returns
-* Educational/demo project for finance dashboards
+* Educational/demo project for AI finance dashboards
 
 ---
 
