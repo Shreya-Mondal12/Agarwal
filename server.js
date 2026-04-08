@@ -1,9 +1,9 @@
 require("dotenv").config();
 const express = require("express");
 const multer  = require("multer");
-const fetch   = require("node-fetch");
 const cors    = require("cors");
 const path    = require("path");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 app.use(cors());
@@ -21,7 +21,7 @@ const upload = multer({
 
 /* ── Health ──────────────────────────────────────────────────────────────── */
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", apiKeyLoaded: !!(process.env.ANTHROPIC_API_KEY || "").trim() });
+  res.json({ status: "ok", apiKeyLoaded: !!(process.env.GEMINI_API_KEY || "").trim() });
 });
 
 /* ── Extraction endpoint ─────────────────────────────────────────────────── */
@@ -42,8 +42,8 @@ async function handleExtract(req, res) {
   if (!req.file) return res.status(400).json({ error: "No file received." });
   console.log(`\n[1] File: "${req.file.originalname}" | ${(req.file.size/1024).toFixed(1)} KB`);
 
-  const apiKey = (process.env.ANTHROPIC_API_KEY || "").trim();
-  if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY missing from .env" });
+  const apiKey = (process.env.GEMINI_API_KEY || "").trim();
+  if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY missing from .env" });
 
   const base64PDF = req.file.buffer.toString("base64");
 
@@ -51,7 +51,7 @@ async function handleExtract(req, res) {
   const EXTRACT_PROMPT = `You are a precise financial document parser for CFPB Closing Disclosure (CD) forms.
 
 Read ALL pages carefully and extract the exact values listed below.
-Return ONLY a raw JSON object — no markdown, no code fences, no explanation.
+Return ONLY a raw JSON object.
 
 CRITICAL RULES — read before extracting:
 1. loanType: "Purchase" if Purpose field says Purchase, otherwise "Refinance"
@@ -93,18 +93,15 @@ Return this exact JSON structure:
   "aggregateAdjustment": <number, negative or 0>
 }`;
 
-  console.log("[2] Calling Claude for extraction...");
-  const extractText = await callClaude(apiKey, base64PDF, EXTRACT_PROMPT);
-  return res.status(200).json({
-  success: false,
-  error: "Extraction failed due to format issues. Please retry."
-});
+  console.log("[2] Calling Gemini for extraction...");
+  const extractText = await callGemini(apiKey, base64PDF, EXTRACT_PROMPT);
 
   console.log(`[3] Raw extract response:\n${extractText.slice(0, 1000)}`);
 
   let extracted;
   try {
-    extracted = JSON.parse(stripFences(extractText));
+    // Gemini's JSON mode guarantees clean JSON output
+    extracted = JSON.parse(extractText);
   } catch (e) {
     return res.status(502).json({ error: "Could not parse extraction JSON: " + e.message, raw: extractText.slice(0, 300) });
   }
@@ -116,7 +113,7 @@ Return this exact JSON structure:
   console.log(`    G: HO=${extracted.escrowHomeownersInsurance}, PT=${extracted.escrowPropertyTaxes}, AggAdj=${extracted.aggregateAdjustment}`);
   console.log(`    loanAmount=${extracted.loanAmount}, cashToClose=${extracted.cashToClose}`);
 
-  // ── STEP 2: Compute benefit summary server-side (no second Claude call needed) ──
+  // ── STEP 2: Compute benefit summary server-side ──
   const isPurchase = !extracted.payoffLines || extracted.payoffLines.length === 0;
 
   const n = (v) => parseFloat(v) || 0;
@@ -128,7 +125,6 @@ Return this exact JSON structure:
 
   // Part 2
   const payoffAmount = (extracted.payoffLines || []).reduce((s, p) => s + n(p.amount), 0);
-  // For purchase loans, excess payoff is 0 (formula only applies to refinances)
   const excessPayoff = isPurchase ? 0 : (payoffAmount + n(extracted.principalReduction) - n(extracted.loanAmount));
 
   const prepaid =
@@ -161,64 +157,46 @@ Return this exact JSON structure:
     benefitsEscrow:                round2(benefitsEscrow),
   };
 
-  console.log(`[5] ✅ Computed: benefitsCost=${computed.benefitsCost}, benefitsEscrow=${computed.benefitsEscrow}`);
+  console.log(`[5] Computed: benefitsCost=${computed.benefitsCost}, benefitsEscrow=${computed.benefitsEscrow}`);
   return res.json({ success: true, data: { ...extracted, ...computed } });
 }
 
-/* ── Claude API helper ───────────────────────────────────────────────────── */
-async function callClaude(apiKey, base64PDF, prompt) {
-  const content = [];
-  if (base64PDF) {
-    content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64PDF } });
-  }
-  content.push({ type: "text", text: prompt });
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type":      "application/json",
-      "x-api-key":         apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-3-opus-20240229",
-      max_tokens: 2000,
-      messages:   [{ role: "user", content }],
-    }),
+/* ── Gemini API helper ───────────────────────────────────────────────────── */
+async function callGemini(apiKey, base64PDF, prompt) {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  
+  // gemini-1.5-flash is extremely fast and accurate for document parsing
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+    generationConfig: {
+      responseMimeType: "application/json", // Enforces strict JSON output
+    }
   });
 
-  const rawBody = await res.text();
-  console.log(`   Anthropic HTTP ${res.status}`);
+  const promptParts = [
+    { text: prompt }
+  ];
 
-  if (!res.ok) {
-    let msg = `Anthropic error ${res.status}`;
-    try { msg = JSON.parse(rawBody).error?.message || msg; } catch {}
-    throw new Error(msg);
+  if (base64PDF) {
+    promptParts.push({
+      inlineData: {
+        data: base64PDF,
+        mimeType: "application/pdf"
+      }
+    });
   }
 
-  const envelope = JSON.parse(rawBody);
-  return (envelope.content || [])
-    .filter(b => b.type === "text")
-    .map(b => b.text)
-    .join("")
-    .trim();
+  const result = await model.generateContent(promptParts);
+  return result.response.text();
 }
 
 /* ── Utilities ───────────────────────────────────────────────────────────── */
-function stripFences(text) {
-  return text
-    .replace(/^```json[\r\n]*/i, "")
-    .replace(/^```[\r\n]*/,      "")
-    .replace(/[\r\n]*```$/,      "")
-    .trim();
-}
-
 function round2(n) { return Math.round(n * 100) / 100; }
 
 /* ── Start ───────────────────────────────────────────────────────────────── */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  const key = (process.env.ANTHROPIC_API_KEY || "").trim();
-  console.log(`\n✅  Server → http://localhost:${PORT}`);
-  console.log(`   API key: ${key ? `LOADED ✓ (${key.slice(0,20)}...)` : "MISSING ✗ — add to .env"}\n`);
+  const key = (process.env.GEMINI_API_KEY || "").trim();
+  console.log(`\n Server → http://localhost:${PORT}`);
+  console.log(`   API key: ${key ? `LOADED ✓ (${key.slice(0,15)}...)` : "MISSING ✗ — add GEMINI_API_KEY to .env"}\n`);
 });
